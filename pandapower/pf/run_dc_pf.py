@@ -95,8 +95,8 @@ def _run_dc_pf(ppci, recycle: dict | bool = False):
     # compute complex bus power injections [generation - load]
     # adjusted for phase shifters and real shunts
     Pbus = np.real(makeSbus(baseMVA, bus, gen)) - bus[:, GS] / baseMVA
-    # add dc nodes respecting loads
-    Pbus = np.concatenate([Pbus, -bus_dc[:, DC_PD]])
+    # DC_PD is stored in MW, while Pbus contains per-unit power injections.
+    Pbus = np.concatenate([Pbus, -bus_dc[:, DC_PD] / baseMVA])
     # select VSCs with mode DC p and not mode AC slack
     vsc_with_p = vsc[(vsc[:, VSC_MODE_DC] == VSC_MODE_DC_P) & (vsc[:, VSC_MODE_AC] != VSC_MODE_AC_SL)]
     ac_bus = vsc_with_p[:, VSC_BUS].astype(int64)
@@ -138,9 +138,9 @@ def _run_dc_pf(ppci, recycle: dict | bool = False):
     # the DC branches: DC_PF and DC_PT from the matrix
     branch_dc[:, DC_PF] = (Bf * Va + Pfinj)[branch.shape[0] + vsc.shape[0]:] * baseMVA
     branch_dc[:, DC_PT] = -branch_dc[:, DC_PF]
-    # set the currents as the nominal power (the currents are calculated in results_branch)
-    branch_dc[:, DC_IF] = branch_dc[:, DC_PF]
-    branch_dc[:, DC_IT] = branch_dc[:, DC_PT]
+    # With the linear DC voltage fixed at 1 pu, branch current in pu equals branch power in pu.
+    branch_dc[:, DC_IF] = branch_dc[:, DC_PF] / baseMVA
+    branch_dc[:, DC_IT] = branch_dc[:, DC_PT] / baseMVA
     # on AC nodes considered for the angle
     bus[:, VA] = Va[:bus.shape[0]] * (180. / pi)
 

@@ -12,7 +12,7 @@ import pytest
 from pandapower.auxiliary import _check_connectivity, _add_ppc_options, LoadflowNotConverged
 from pandapower.create import (create_empty_network, create_bus, create_transformer, create_transformer3w, create_load,
                                create_xward, create_switch, create_ext_grid, create_line_from_parameters, create_bus_dc,
-                               create_vsc, create_line_dc_from_parameters)
+                               create_vsc, create_line_dc_from_parameters, create_load_dc)
 from pandapower.networks.power_system_test_cases import case4gs, case118
 from pandapower.pd2ppc import _pd2ppc
 from pandapower.run import rundcpp, runpp
@@ -82,6 +82,42 @@ def test_test_sn_mva():
             assert_net_equal(net1, net2, exclude_elms=["sn_mva"])
         except:
             raise UserWarning("Result difference due to sn_mva after adding %s" % net1.last_added_case)
+
+
+def _create_load_dc_test_network(sn_mva):
+    net = create_empty_network(sn_mva=sn_mva)
+
+    ac_slack_bus = create_bus(net, vn_kv=110)
+    ac_vsc_bus = create_bus(net, vn_kv=110)
+    create_ext_grid(net, ac_slack_bus)
+    create_line_from_parameters(net, ac_slack_bus, ac_vsc_bus, length_km=1, r_ohm_per_km=0.05,
+                                x_ohm_per_km=0.1, c_nf_per_km=0, max_i_ka=1)
+
+    dc_vsc_bus = create_bus_dc(net, vn_kv=110)
+    dc_load_bus = create_bus_dc(net, vn_kv=110)
+    create_line_dc_from_parameters(net, dc_vsc_bus, dc_load_bus, length_km=1, r_ohm_per_km=0.2,
+                                   max_i_ka=1)
+    create_vsc(net, ac_vsc_bus, dc_vsc_bus, r_ohm=0.1, x_ohm=5, r_dc_ohm=0.15,
+               control_mode_ac="q_mvar", control_value_ac=0,
+               control_mode_dc="vm_pu", control_value_dc=1)
+    create_load_dc(net, dc_load_bus, p_dc_mw=10)
+    return net
+
+
+@pytest.mark.parametrize("solver", [runpp, rundcpp], ids=["runpp", "rundcpp"])
+def test_load_dc_results_independent_of_sn_mva(solver):
+    nets = [_create_load_dc_test_network(sn_mva) for sn_mva in (1, 10)]
+    for net in nets:
+        solver(net)
+
+    # Changing the calculation base must not change results expressed in physical units.
+    result_columns = {
+        "res_bus_dc": ["vm_pu", "p_mw"],
+        "res_line_dc": ["p_from_mw", "p_to_mw", "pl_mw", "i_ka"],
+        "res_vsc": ["p_mw", "p_dc_mw"],
+    }
+    for table, columns in result_columns.items():
+        np.testing.assert_allclose(nets[0][table][columns], nets[1][table][columns], rtol=1e-7, atol=1e-9)
 
 
 def test_single_bus_network():

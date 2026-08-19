@@ -80,8 +80,8 @@ def test_hvdc_interconnect_with_dmr():
     assert np.isclose(net.res_line_dc.loc[dmr, 'i_ka'], 0.133, atol=0.001)
 
 
-def test_source_dc():
-    net = create_empty_network()
+def _create_source_dc_test_network(sn_mva):
+    net = create_empty_network(sn_mva=sn_mva)
     create_bus(net, 380)
     create_bus(net, 380)
     create_ext_grid(net, bus=0, vm_pu=1.0)
@@ -94,9 +94,34 @@ def test_source_dc():
 
     create_source_dc(net, bus_dc=0, vm_pu=.5)
     create_load_dc(net, bus_dc=1, p_dc_mw=10)
+    return net
 
-    runpp(net)
-    pass
+
+def test_source_dc_results_independent_of_sn_mva():
+    nets = [_create_source_dc_test_network(sn_mva) for sn_mva in (1, 10)]
+    for net in nets:
+        runpp(net)
+
+        # The source result is derived from the solved DC bus power and must be reported in MW.
+        np.testing.assert_allclose(
+            net.res_source_dc.at[0, "p_dc_mw"],
+            net.res_line_dc.at[0, "p_from_mw"],
+            rtol=1e-9,
+            atol=1e-9,
+        )
+        np.testing.assert_allclose(
+            net.res_line_dc.at[0, "p_to_mw"],
+            -net.load_dc["p_dc_mw"].iat[0] * net.load_dc["scaling"].iat[0],
+            rtol=1e-9,
+            atol=1e-8,
+        )
+
+    for table, columns in {
+        "res_bus_dc": ["vm_pu", "p_mw"],
+        "res_line_dc": ["p_from_mw", "p_to_mw", "pl_mw", "i_ka"],
+        "res_source_dc": ["p_dc_mw"],
+    }.items():
+        np.testing.assert_allclose(nets[0][table][columns], nets[1][table][columns], rtol=1e-9, atol=1e-9)
 
 
 @pytest.mark.xfail
